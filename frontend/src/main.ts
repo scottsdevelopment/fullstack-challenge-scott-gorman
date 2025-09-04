@@ -1,14 +1,20 @@
-import { createApp } from "vue";
-import { createPinia } from "pinia";
+import { createApp } from 'vue'
+import { createPinia } from 'pinia'
+import App from './App.vue'
+import './style.css'
+import { create, NLayout, NLayoutSider, NLayoutContent, NSplit,
+  NList, NListItem, NThing, NAvatar, NCard, NEmpty, NButton, NDivider,
+  NSpin, NSkeleton, NTag, NIcon, NGrid, NGi, NStatistic } from 'naive-ui'
 
-import App from "./App.vue";
-import router from "./router";
+const naive = create({
+  components: [
+    NLayout, NLayoutSider, NLayoutContent, NSplit,
+    NList, NListItem, NThing, NAvatar, NCard, NEmpty, NButton, NDivider,
+    NSpin, NSkeleton, NTag, NIcon, NGrid, NGi, NStatistic
+  ]
+})
 
-import "./assets/main.css";
-
-const app = createApp(App);
-
-app.use(createPinia());
-app.use(router);
-
-app.mount("#app");
+const app = createApp(App)
+app.use(createPinia())
+app.use(naive)
+app.mount('#app')

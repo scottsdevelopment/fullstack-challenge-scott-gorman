@@ -15,7 +15,16 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule)
     {
-        // $schedule->command('inspire')->hourly();
+        $schedule->call(function () {
+            $users = \App\Models\User::whereNotNull('latitude')
+                ->whereNotNull('longitude')
+                ->get(['latitude', 'longitude']);
+
+            foreach ($users as $user) {
+                RefreshWeatherJob::dispatch($user->latitude, $user->longitude)
+                    ->onQueue('weather');
+            }
+        })->everyThirtyMinutes();
     }
 
     /**

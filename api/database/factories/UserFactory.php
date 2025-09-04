@@ -23,8 +23,9 @@ class UserFactory extends Factory
             'email_verified_at' => now(),
             'password' => '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', // password
             'remember_token' => Str::random(10),
-            'longitude' => fake()->longitude(),
-            'latitude' => fake()->latitude(),
+            // Constrain lat/lon to the approximate continental US
+            'latitude'  => fake()->latitude(30.0, 46.0),
+            'longitude' => fake()->longitude(-105.0, -85.0),
         ];
     }
 }
