@@ -44,13 +44,18 @@ function fmtWind(mph?: number | null, kph?: number | null) {
     <n-card class="max-w-2xl w-full elevated-card relative overflow-hidden">
       <!-- Header (icon left, text right) -->
       <div class="flex items-start gap-4 p-6 pt-5 pb-3">
-        <div v-if="weather?.iconUrl" class="icon-tile" :style="{ backgroundImage: `url(${weather.iconUrl})` }" />
-        <div class="leading-tight">
-          <div class="text-xl font-semibold">
-            {{ weather?.city || '—' }}<span v-if="weather?.state">, {{ weather?.state }}</span>
-          </div>
-          <div class="text-xs text-gray-600">
-            {{ fmtTime(weather?.observedAtIso8601) }}
+        <div v-if="loading" class="space-y-3 p-4">
+          <n-skeleton text :repeat="2" :width="'80%'" />
+        </div>
+        <div v-else>
+          <div v-if="weather?.iconUrl" class="icon-tile" :style="{ backgroundImage: `url(${weather.iconUrl})` }" />
+          <div class="leading-tight">
+            <div class="text-xl font-semibold">
+              {{ weather?.city || '—' }}<span v-if="weather?.state">, {{ weather?.state }}</span>
+            </div>
+            <div class="text-xs text-gray-600">
+              {{ fmtTime(weather?.observedAtIso8601) }}
+            </div>
           </div>
         </div>
       </div>
@@ -59,7 +64,7 @@ function fmtWind(mph?: number | null, kph?: number | null) {
 
       <!-- Loading -->
       <div v-if="loading" class="space-y-3 p-4">
-        <nskeleton text :repeat="4" />
+        <n-skeleton text :repeat="4" />
       </div>
 
       <!-- Content -->

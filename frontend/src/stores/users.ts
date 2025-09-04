@@ -3,11 +3,14 @@ import { ref, computed } from 'vue'
 import type { ID, User, UsersIndexResponse, UserShowResponse, WeatherBrief } from '../types'
 import { api } from '../lib/api'
 
+const WEATHER_TTL_MS = 5 * 60 * 1000 // 5 minutes
+
 export const useUsersStore = defineStore('users', () => {
   // state
   const list       = ref<User[]>([])
   const byId       = ref<Map<ID, User>>(new Map())
   const weather    = ref<Map<ID, WeatherBrief | null>>(new Map())
+  const weatherAt  = ref<Map<ID, number>>(new Map()) // timestamp per user
   const loading    = ref(false)
   const loadingIds = ref<Set<ID>>(new Set())
   const error      = ref<string | null>(null)
@@ -16,6 +19,14 @@ export const useUsersStore = defineStore('users', () => {
   const hasData = computed(() => list.value.length > 0)
   const getUser = (id: ID) => computed(() => byId.value.get(id) ?? null)
   const getWeather = (id: ID) => computed(() => weather.value.get(id) ?? null)
+  function isLoadingUser(id: ID) { return loadingIds.value.has(id) }
+
+  // helpers
+  function isWeatherFresh(id: ID): boolean {
+    const ts = weatherAt.value.get(id)
+    if (!ts) return false
+    return Date.now() - ts < WEATHER_TTL_MS
+  }
 
   // actions
   async function fetchAll(force = false) {
@@ -26,6 +37,16 @@ export const useUsersStore = defineStore('users', () => {
       const data = await api<UsersIndexResponse>('/users')
       list.value = data.users ?? []
       byId.value = new Map(list.value.map(u => [u.id, u]))
+
+      // prime weather cache if included in index response
+      const now = Date.now()
+      for (const u of list.value) {
+        const weatherData = (u as any).weather ?? null
+        if (weatherData !== undefined) {
+          weather.value.set(u.id, weatherData)
+          weatherAt.value.set(u.id, now)
+        }
+      }
     } catch (e: any) {
       error.value = e?.message ?? 'Failed to load users'
       throw e
@@ -36,37 +57,37 @@ export const useUsersStore = defineStore('users', () => {
 
   async function fetchOne(id: ID, force = false) {
     if (!force && byId.value.has(id)) return byId.value.get(id)!
-    // hit the show endpoint and refresh this user specifically
     const data = await api<UserShowResponse>(`/users/${id}`)
     const u = data.user
-    // update user map
     byId.value.set(u.id, u)
-    // also refresh list if it already exists
     const idx = list.value.findIndex(x => x.id === u.id)
     if (idx >= 0) list.value[idx] = u
-    // store weather if present
-    weather.value.set(u.id, (u as any).weather ?? null)
+
+    const weatherData = (u as any).weather ?? null
+    if (weatherData !== undefined) {
+      weather.value.set(u.id, weatherData)
+      weatherAt.value.set(u.id, Date.now())
+    }
     return u
   }
 
   async function fetchWeather(id: ID, { force = false } = {}) {
-    if (weather.value.has(id) && !force) return weather.value.get(id) ?? null
+    if (!force && weather.value.has(id) && isWeatherFresh(id)) {
+      return weather.value.get(id) ?? null
+    }
+
     loadingIds.value.add(id)
     try {
       const data = await api<UserShowResponse>(`/users/${id}`)
       const u = data.user
-      // keep user fresh
       byId.value.set(u.id, u)
-      // and stash weather
-      weather.value.set(u.id, (u as any).weather ?? null)
-      return (u as any).weather ?? null
+      const weatherData = (u as any).weather ?? null
+      weather.value.set(u.id, weatherData)
+      weatherAt.value.set(u.id, Date.now())
+      return weatherData
     } finally {
       loadingIds.value.delete(id)
     }
-  }
-
-  function isLoadingUser(id: ID) {
-    return loadingIds.value.has(id)
   }
 
   return {
@@ -76,5 +97,7 @@ export const useUsersStore = defineStore('users', () => {
     hasData, getUser, getWeather, isLoadingUser,
     // actions
     fetchAll, fetchOne, fetchWeather,
+    // optional helper
+    isWeatherFresh,
   }
 })

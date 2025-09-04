@@ -46,13 +46,7 @@ function fmtTempF(n: number | null | undefined) {
             >
               <n-thing>
                 <template #avatar>
-                  <!-- Prefer weather icon if present -->
-                  <n-avatar
-                    v-if="(u as any).weather?.iconUrl"
-                    round size="large"
-                    :src="(u as any).weather.iconUrl"
-                  />
-                  <n-avatar v-else round size="large">
+                  <n-avatar round size="large">
                     <n-icon><PersonCircleOutline /></n-icon>
                   </n-avatar>
                 </template>
@@ -65,26 +59,12 @@ function fmtTempF(n: number | null | undefined) {
                     >
                       {{ u.name }}
                     </span>
-                    <n-tag size="small" :type="selectedId === u.id ? 'success' : 'default'">
-                      ID {{ u.id }}
-                    </n-tag>
                   </div>
                 </template>
 
                 <template #description>
                   <div class="text-gray-600 text-sm">
                     {{ u.email }}
-                  </div>
-                  <div class="text-gray-500 text-xs mt-1 flex items-center gap-2">
-                    <span>{{ u.city }}, {{ u.state }}</span>
-                    <span>•</span>
-                    <span>{{ fmtTempF((u as any).weather?.temperatureFahrenheit) }}</span>
-                    <n-avatar
-                      v-if="(u as any).weather?.iconUrl"
-                      :src="(u as any).weather.iconUrl"
-                      size="small"
-                      class="!h-5 !w-5"
-                    />
                   </div>
                 </template>
               </n-thing>
