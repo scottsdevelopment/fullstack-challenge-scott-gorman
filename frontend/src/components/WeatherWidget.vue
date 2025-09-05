@@ -2,7 +2,7 @@
 import { NCard, NDivider, NSkeleton, NGrid, NGi, NStatistic } from 'naive-ui'
 import type { WeatherBrief } from '@/types'
 
-const props = defineProps<{
+defineProps<{
   weather: WeatherBrief | null
   loading?: boolean
 }>()
@@ -47,7 +47,9 @@ function fmtWind(mph?: number | null, kph?: number | null) {
         <div v-if="loading" class="space-y-3 p-4">
           <n-skeleton text :repeat="2" :width="'80%'" />
         </div>
-        <div v-else>
+
+        <!-- Make this a flex row so icon sits left of city/state -->
+        <div v-else class="flex items-center gap-4">
           <div v-if="weather?.iconUrl" class="icon-tile" :style="{ backgroundImage: `url(${weather.iconUrl})` }" />
           <div class="leading-tight">
             <div class="text-xl font-semibold">

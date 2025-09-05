@@ -43,6 +43,7 @@ class UserController extends Controller
             'user'    => $this->serializeUserWithWeather($user, detailed: true),
         ]);
     }
+
     /**
      * Serialize a User model to an array, including current weather if available.
      *
@@ -68,46 +69,46 @@ class UserController extends Controller
         return $base + ['weather' => $weather];
     }
 
-/**
- * Returns WeatherResponse::toArray() if observation is ≤ 60 minutes old; else null.
- * Never throws—gracefully degrades to null on provider errors.
- */
-private function currentWeatherOrNull(float $lat, float $lon, bool $detailed = false): ?array
-{
-    try {
-        /** @var WeatherResponse|null $currentWeather */
-        $currentWeather = $this->weather->currentCachedOnly($lat, $lon);
+    /**
+     * Returns WeatherResponse::toArray() if observation is ≤ 60 minutes old; else null.
+     * Never throws—gracefully degrades to null on provider errors.
+     */
+    private function currentWeatherOrNull(float $lat, float $lon, bool $detailed = false): ?array
+    {
+        try {
+            /** @var WeatherResponse|null $currentWeather */
+            $currentWeather = $this->weather->currentCachedOnly($lat, $lon);
 
-        \Log::debug('UserController currentWeatherOrNull', [
-            'lat' => $lat,
-            'lon' => $lon,
-            'detailed' => $detailed,
-            'wx' => $currentWeather,
-        ]);
+            \Log::debug('UserController currentWeatherOrNull', [
+                'lat' => $lat,
+                'lon' => $lon,
+                'detailed' => $detailed,
+                'wx' => $currentWeather,
+            ]);
 
-        // No cached data — enqueue refresh and return null
-        if (!$currentWeather || empty($currentWeather->observedAtIso8601)) {
+            // No cached data — enqueue refresh and return null
+            if (!$currentWeather || empty($currentWeather->observedAtIso8601)) {
+                RefreshWeatherJob::dispatch($lat, $lon)->onQueue('weather');
+                return null;
+            }
+
+            $observed = new CarbonImmutable($currentWeather->observedAtIso8601);
+
+            // Stale (> 60 minutes) — enqueue refresh and return null
+            if ($observed->lt(now()->subMinutes(60))) {
+                RefreshWeatherJob::dispatch($lat, $lon)->onQueue('weather');
+                return null;
+            }
+
+            $payload = $currentWeather->toArray();
+
+            return $payload;
+        } catch (WeatherException|\Throwable $e) {
+            \Log::debug('UserController currentWeatherOrNull caught exception', ['exception' => $e]);
+            // On error, attempt to refresh in the background
             RefreshWeatherJob::dispatch($lat, $lon)->onQueue('weather');
             return null;
         }
-
-        $observed = new CarbonImmutable($currentWeather->observedAtIso8601);
-
-        // Stale (> 60 minutes) — enqueue refresh and return null
-        if ($observed->lt(now()->subMinutes(60))) {
-            RefreshWeatherJob::dispatch($lat, $lon)->onQueue('weather');
-            return null;
-        }
-
-        $payload = $currentWeather->toArray();
-
-        return $payload;
-    } catch (WeatherException|\Throwable $e) {
-        \Log::debug('UserController currentWeatherOrNull caught exception', ['exception' => $e]);
-        // On error, attempt to refresh in the background
-        RefreshWeatherJob::dispatch($lat, $lon)->onQueue('weather');
-        return null;
     }
-}
 
 }

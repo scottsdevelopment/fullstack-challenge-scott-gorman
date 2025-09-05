@@ -4,6 +4,7 @@ namespace App\Console;
 
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Console\Kernel as ConsoleKernel;
+use App\Services\Weather\RefreshWeatherJob;
 
 class Kernel extends ConsoleKernel
 {
@@ -24,7 +25,7 @@ class Kernel extends ConsoleKernel
                 RefreshWeatherJob::dispatch($user->latitude, $user->longitude)
                     ->onQueue('weather');
             }
-        })->everyThirtyMinutes();
+        })->everyTenMinutes();
     }
 
     /**
