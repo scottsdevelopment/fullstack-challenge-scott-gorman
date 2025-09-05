@@ -26,28 +26,9 @@ class RefreshWeatherJob implements ShouldQueue
         $latitude = $this->latitude;
         $longitude = $this->longitude;
 
-        $failKey = WeatherCacheKey::fail($latitude, $longitude, 'meta');
-
-        // Skip if metadata is in a known fail state
-        if (Cache::has($failKey)) {
-            Log::info('RefreshWeatherJob: skipping due to cached meta failure', [
-                'latitude' => $latitude,
-                'longitude' => $longitude,
-            ]);
-            return;
-        }
-
         try {
-            // Trigger the provider call (this will populate or refresh the caches internally)
             $currentWeather = $weather->current($latitude, $longitude);
-
-            Log::info('RefreshWeatherJob: refreshed weather data', [
-                'latitude' => $latitude,
-                'longitude' => $longitude,
-                'observedAt' => $currentWeather->observedAtIso8601,
-            ]);
         } catch (\Throwable $e) {
-            // Provider handles setting fail keys, so we just log
             Log::warning('RefreshWeatherJob: weather refresh failed', [
                 'latitude' => $latitude,
                 'longitude' => $longitude,

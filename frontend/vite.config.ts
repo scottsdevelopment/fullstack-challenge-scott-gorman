@@ -13,11 +13,10 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      // Match requests starting with /api
       '/api': {
         target: 'http://localhost:80',
         changeOrigin: true,
       },
     },
   },
-})
+});

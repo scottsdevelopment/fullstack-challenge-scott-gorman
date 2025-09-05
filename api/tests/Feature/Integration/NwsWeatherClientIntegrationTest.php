@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
-class NwsWeatherIntegrationTest extends TestCase
+class NwsWeatherClientIntegrationTest extends TestCase
 {
     /** @test @group integration */
     public function it_fetches_a_real_current_observation()

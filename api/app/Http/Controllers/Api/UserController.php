@@ -15,7 +15,7 @@ class UserController extends Controller
 
     /**
      * GET /api/users
-     * Returns 20 seeded users with their current weather (if available).
+     * Returns all users with their current weather (if available).
      */
     public function index(): JsonResponse
     {
