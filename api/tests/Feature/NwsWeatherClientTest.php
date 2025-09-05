@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Services\Weather\NwsWeatherClient;
 use App\Services\Weather\CachedNwsWeatherClient;
 use App\Services\Weather\WeatherCacheKey;
+use App\Services\Weather\WeatherResponse;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -74,10 +75,11 @@ class NwsWeatherClientTest extends TestCase
 
         // Force errors so client must use cache
         Http::fake([
-            'api.weather.gov/*' => Http::response([], 500),
+            'api.weather.gov/*' => Http::response([]),
         ]);
 
-        $cached = [
+        $cached = WeatherResponse::fromArray([
+            'stationsUrl'                => 'https://api.weather.gov/stations/KDTW',
             'conditionSummary'           => 'Sunny',
             'temperatureCelsius'         => 20.0,
             'temperatureFahrenheit'      => 68.0,
@@ -87,7 +89,7 @@ class NwsWeatherClientTest extends TestCase
             'pressureMillibars'          => 1012.0,
             'iconUrl'                    => null,
             'observedAtIso8601'          => '2025-09-03T10:00:00+00:00',
-        ];
+        ]);
 
         // Match your client's cache key format (rounded coords)
         $cacheKey = WeatherCacheKey::current(42.3314, -83.0458);

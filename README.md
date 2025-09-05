@@ -1,11 +1,6 @@
-# Todos and Problems
+# Enhancements and Todos
 
-- [ ] Decouple cache from weather client
-- [ ] Improvements to the frontend UI
-- [ ] Additional weather API implementations
-- [ ] More testing overall
-- [ ] Websocket over polling 
-- [ ] Better seeding data to prevent invalid geolocations
+The [Roadmap](ROADMAP.md) file tracks todos and comments for future improvements.
 
 # Fullstack Challenge
 

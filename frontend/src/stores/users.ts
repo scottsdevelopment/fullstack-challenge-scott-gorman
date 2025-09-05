@@ -7,13 +7,14 @@ const WEATHER_TTL_MS = 5 * 60 * 1000 // 5 minutes
 
 export const useUsersStore = defineStore('users', () => {
   // state
-  const list       = ref<User[]>([])
-  const byId       = ref<Map<ID, User>>(new Map())
-  const weather    = ref<Map<ID, WeatherBrief | null>>(new Map())
-  const weatherAt  = ref<Map<ID, number>>(new Map()) // timestamp per user
-  const loading    = ref(false)
+  const list = ref<User[]>([])
+  const byId = ref<Map<ID, User>>(new Map())
+  const weather = ref<Map<ID, WeatherBrief | null>>(new Map())
+  const weatherAt = ref<Map<ID, number>>(new Map()) // timestamp per user
+  const loading = ref(false)
   const loadingIds = ref<Set<ID>>(new Set())
-  const error      = ref<string | null>(null)
+  const error = ref<string | null>(null)
+  const hasLoadedOnce = ref(false)
 
   // getters
   const hasData = computed(() => list.value.length > 0)
@@ -29,16 +30,16 @@ export const useUsersStore = defineStore('users', () => {
   }
 
   // actions
-  async function fetchAll(force = false) {
-    if (hasData.value && !force) return
-    loading.value = true
+  async function fetchAll() {
+    const shouldSpin = !hasLoadedOnce.value
+    if (shouldSpin) loading.value = true
+
     error.value = null
     try {
       const data = await api<UsersIndexResponse>('/users')
       list.value = data.users ?? []
       byId.value = new Map(list.value.map(u => [u.id, u]))
 
-      // prime weather cache if included in index response
       const now = Date.now()
       for (const u of list.value) {
         const weatherData = (u as any).weather ?? null
@@ -47,13 +48,16 @@ export const useUsersStore = defineStore('users', () => {
           weatherAt.value.set(u.id, now)
         }
       }
+
+      hasLoadedOnce.value = true
     } catch (e: any) {
       error.value = e?.message ?? 'Failed to load users'
       throw e
     } finally {
-      loading.value = false
+      if (shouldSpin) loading.value = false
     }
   }
+
 
   async function fetchOne(id: ID, force = false) {
     if (!force && byId.value.has(id)) return byId.value.get(id)!

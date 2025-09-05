@@ -1,24 +1,14 @@
 <script setup lang="ts">
-import { computed } from 'vue'
 import { NCard, NDivider, NSkeleton, NGrid, NGi, NStatistic } from 'naive-ui'
-import type { WeatherBrief } from '@/types'
-import { useUsersStore } from '@/stores/users'
+import type { User, WeatherBrief } from '@/types'
 
-const props = withDefaults(defineProps<{
+withDefaults(defineProps<{
   weather: WeatherBrief | null
   loading?: boolean
-  selectedId?: number | null
+  selectedUser?: User | null
 }>(), {
   loading: false,
   selectedId: null,
-})
-
-const users = useUsersStore()
-
-const selectedUser = computed(() => {
-  if (props.selectedId == null) return null
-  // use the store getter you already have
-  return users.getUser(props.selectedId).value
 })
 
 function toNum(n: unknown) { return typeof n === 'number' && Number.isFinite(n) ? n : null }
@@ -69,7 +59,7 @@ function fmtWind(mph?: number | null, kph?: number | null) { const m = toNum(mph
             </div>
           </div>
 
-          <div v-if="selectedUser" class="shrink-0 min-w-[200px] rounded-xl border px-4 py-3 shadow-sm">
+          <div v-if="selectedUser" class="shrink-0 min-w-[200px]">
             <div class="font-semibold truncate">{{ selectedUser.name }}</div>
             <div class="text-xs text-gray-500 truncate">{{ selectedUser.email }}</div>
           </div>

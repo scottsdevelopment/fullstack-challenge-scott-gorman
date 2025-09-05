@@ -8,7 +8,7 @@ const users = useUsersStore()
 const selectedId = ref<number | null>(null)
 
 let pollHandle: number | null = null
-const POLL_MS = 15 * 60 * 1000 // 15 minutes
+const POLL_MS = 5 * 60 * 1000 // 5 minutes
 
 onMounted(async () => {
   try {
@@ -17,13 +17,11 @@ onMounted(async () => {
     if (users.list.length) {
       selectedId.value = users.list[0].id
     }
-
-    // Poll the entire dataset (users + weather) every 15 minutes
     pollHandle = window.setInterval(() => {
-      users.fetchAll(true) // drop "true" if your store doesn't use it
+      users.fetchAll()
     }, POLL_MS)
   } catch {
-    // store handles its own error state
+    
   }
 })
 
@@ -69,6 +67,7 @@ function handleSelect(id: number) {
             <weather-widget
               :weather="selectedWeather"
               :loading="users.loading"
+              :selected-user="selectedUser"
             />
           </div>
         </div>
