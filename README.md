@@ -1,3 +1,12 @@
+# Todos and Problems
+
+- [ ] Decouple cache from weather client
+- [ ] Improvements to the frontend UI
+- [ ] Additional weather API implementations
+- [ ] More testing overall
+- [ ] Websocket over polling 
+- [ ] Better seeding data to prevent invalid geolocations
+
 # Fullstack Challenge
 
 ## Goal

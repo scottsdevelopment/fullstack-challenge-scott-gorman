@@ -1,45 +1,36 @@
 <script setup lang="ts">
-import { onMounted, ref, computed, watch } from 'vue'
+import { onMounted, onUnmounted, ref, computed } from 'vue'
 import { useUsersStore } from '@/stores/users'
 import UserListPanel from '@/components/UserListPanel.vue'
 import WeatherWidget from '@/components/WeatherWidget.vue'
 
 const users = useUsersStore()
 const selectedId = ref<number | null>(null)
-const loadingWeather = ref(false)
 
-/** Consider weather stale if observed > 60 min ago (fallback to fetchedAt if you track it in the store) */
-function isStale(weather: any | null | undefined) {
-  if (!weather) return true
-  const iso = weather.observedAtIso8601 as string | null | undefined
-  if (!iso) return true
-  const t = new Date(iso).getTime()
-  if (Number.isNaN(t)) return true
-  const ageMs = Date.now() - t
-  return ageMs > 60 * 60 * 1000 // 60 minutes
-}
+let pollHandle: number | null = null
+const POLL_MS = 15 * 60 * 1000 // 15 minutes
 
 onMounted(async () => {
   try {
     await users.fetchAll()
 
     if (users.list.length) {
-      const firstId = users.list[0].id
-      selectedId.value = firstId
-
-      // Prefetch only if missing or stale to make the first render instant when possible
-      const cached = users.getWeather(firstId).value
-      if (isStale(cached)) {
-        loadingWeather.value = true
-        try {
-          await users.fetchWeather(firstId)
-        } finally {
-          loadingWeather.value = false
-        }
-      }
+      selectedId.value = users.list[0].id
     }
+
+    // Poll the entire dataset (users + weather) every 15 minutes
+    pollHandle = window.setInterval(() => {
+      users.fetchAll(true) // drop "true" if your store doesn't use it
+    }, POLL_MS)
   } catch {
     // store handles its own error state
+  }
+})
+
+onUnmounted(() => {
+  if (pollHandle != null) {
+    clearInterval(pollHandle)
+    pollHandle = null
   }
 })
 
@@ -49,26 +40,6 @@ const selectedUser = computed(() =>
 
 const selectedWeather = computed(() =>
   selectedId.value ? users.getWeather(selectedId.value).value : null
-)
-
-watch(
-  selectedId,
-  async (id) => {
-    if (!id) return
-    const cached = users.getWeather(id).value
-    if (isStale(cached)) {
-      loadingWeather.value = true
-      try {
-        await users.fetchWeather(id)
-      } finally {
-        loadingWeather.value = false
-      }
-    } else {
-      // cached & fresh; ensure no spinner
-      loadingWeather.value = false
-    }
-  },
-  { immediate: false }
 )
 
 function handleSelect(id: number) {
@@ -84,7 +55,6 @@ function handleSelect(id: number) {
         :width="300"
         class="bg-white h-full flex flex-col overflow-hidden"
       >
-        <!-- Make only the list area scroll -->
         <div class="flex-1 min-h-0 overflow-y-auto">
           <user-list-panel
             :selected-id="selectedId"
@@ -94,11 +64,11 @@ function handleSelect(id: number) {
       </n-layout-sider>
 
       <n-layout-content>
-        <div class="h-full flex flex-col min-h-0 p-6">
+        <div class="h-full flex flex-col min-h-0 p-6 relative">
           <div class="flex-1 min-h-0 overflow-hidden">
             <weather-widget
               :weather="selectedWeather"
-              :loading="loadingWeather"
+              :loading="users.loading"
             />
           </div>
         </div>

@@ -5,12 +5,15 @@ namespace App\Services\Weather;
 /**
  * Utility for building consistent weather cache keys.
  *
- * Example success key: weather:meta:42.12:-83.45
- * Example fail key:    weather:fail:meta:42.12:-83.45
+ * Example current key: weather:current:42.12:-83.45
+ * Example meta key:    weather:meta:42.12:-83.45
  */
 final class WeatherCacheKey
 {
     private const PREFIX = 'weather';
+
+    public const TYPE_CURRENT = 'current';
+    public const TYPE_META    = 'meta';
 
     /**
      * Normalize coordinates to fixed precision (2 decimals).
@@ -24,30 +27,27 @@ final class WeatherCacheKey
     }
 
     /**
-     * Success-path cache key.
-     *
-     * @param float $lat
-     * @param float $lon
-     * @param string $type e.g. "current", "meta", "stations"
+     * Cache key for current observation.
      */
-    public static function success(float $lat, float $lon, string $type = 'current'): string
+    public static function current(float $lat, float $lon): string
     {
-        [$latNorm, $lonNorm] = self::normalize($lat, $lon);
-
-        return sprintf('%s:%s:%s:%s', self::PREFIX, $type, $latNorm, $lonNorm);
+        return self::build(self::TYPE_CURRENT, $lat, $lon);
     }
 
     /**
-     * Failure-path cache key.
-     *
-     * @param float $lat
-     * @param float $lon
-     * @param string $type e.g. "current", "meta", "stations"
+     * Cache key for point metadata (city/state/stations/etc).
      */
-    public static function fail(float $lat, float $lon, string $type = 'current'): string
+    public static function meta(float $lat, float $lon): string
+    {
+        return self::build(self::TYPE_META, $lat, $lon);
+    }
+
+    /**
+     * General builder for consistency.
+     */
+    private static function build(string $type, float $lat, float $lon): string
     {
         [$latNorm, $lonNorm] = self::normalize($lat, $lon);
-
-        return sprintf('%s:fail:%s:%s:%s', self::PREFIX, $type, $latNorm, $lonNorm);
+        return sprintf('%s:%s:%s:%s', self::PREFIX, $type, $latNorm, $lonNorm);
     }
 }

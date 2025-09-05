@@ -2,299 +2,207 @@
 
 namespace App\Services\Weather;
 
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
-use App\Services\Weather\WeatherCacheKey;
+use Illuminate\Http\Client\Response;
+use App\Services\Weather\Contracts\WeatherProvider;
+use App\Services\Weather\WeatherResponse;
 
 /**
- * Weather provider implementation using the
- * U.S. National Weather Service API (https://api.weather.gov).
+ * Weather provider implementation using the U.S. National Weather Service API.
+ * Builds a WeatherResponse via fluent setters.
  */
 class NwsWeatherClient implements WeatherProvider
 {
-    private const CACHE_TYPE_CURRENT = 'current';
-    private const CACHE_TYPE_META    = 'meta';
-
     private string $baseUrl;
     private string $userAgent;
-    private int $timeoutMilliseconds;
-    private int $connectMilliseconds;
-    private int $retryAttempts;
-    private int $cacheTtlSeconds;
-    private int $metaTtlSeconds;
+    private int $timeoutMs;
+    private int $connectMs;
+    private int $retries;
 
     public function __construct()
     {
-        $config = config('weather.nws');
-
-        $this->baseUrl             = rtrim($config['base_url'], '/');
-        $this->userAgent           = $config['user_agent'];
-        $this->timeoutMilliseconds = $config['timeout'];
-        $this->connectMilliseconds = $config['connect'];
-        $this->retryAttempts       = $config['retries'];
-        $this->cacheTtlSeconds     = $config['cache_ttl'];
-        $this->metaTtlSeconds      = $config['meta_ttl'];
+        $cfg = config('weather.nws');
+        $this->baseUrl   = rtrim((string) $cfg['base_url'], '/');
+        $this->userAgent = (string) $cfg['user_agent'];
+        $this->timeoutMs = (int) $cfg['timeout_ms'];
+        $this->connectMs = (int) $cfg['connect_ms'];
+        $this->retries   = (int) $cfg['retries'];
     }
 
     /**
-     * Retrieve the current weather conditions for a given latitude/longitude.
+     * Fetch current conditions for coordinates from NWS (no caching).
      *
-     * @param  float $latitude   Latitude in decimal degrees
-     * @param  float $longitude  Longitude in decimal degrees
-     * @return WeatherResponse
-     *
-     * @throws WeatherException if no data can be retrieved or normalized
+     * @throws WeatherException
      */
     public function current(float $latitude, float $longitude): WeatherResponse
     {
-        $cacheKey = WeatherCacheKey::success($latitude, $longitude, self::CACHE_TYPE_CURRENT);
+        $wx = new WeatherResponse();
 
-        $normalized = Cache::remember($cacheKey, $this->cacheTtlSeconds, function () use ($latitude, $longitude) {
-            [$stationsUrl, $city, $state] = $this->resolvePointMeta($latitude, $longitude);
+        $wx->setLatitude($latitude)
+           ->setLongitude($longitude);
 
-            $stationId = $this->nearestStationId($stationsUrl);
-            if (! $stationId) {
-                throw new WeatherException("No station found for coordinates {$latitude},{$longitude}");
-            }
+        $this->resolvePointMeta($wx);
 
-            $observation = $this->latestObservation($stationId);
-            $normalized  = $this->normalize($observation, $city, $state);
-            \Log::debug('Normalized observation', ['data' => $normalized]);
-            \Log::debug('City/State', ['city' => $city, 'state' => $state]);
-            if (! $normalized) {
-                throw new WeatherException("Failed to normalize observation for station {$stationId}");
-            }
+        $this->nearestStationId($wx);
 
-            return $normalized;
-        });
+        $this->latestObservation($wx);
 
-        return $this->mapCached($normalized);
+        return $wx;
     }
 
     /**
-     * Retrieve the current weather conditions from cache only.
-     * Returns null if no cached data is available.
+     * Resolve station list URL and relative location; pushes city/state/stationsUrl into $wx.
      *
-     * @param  float $latitude
-     * @param  float $longitude
-     * @return WeatherResponse|null
+     * @throws WeatherException
      */
-    public function currentCachedOnly(float $latitude, float $longitude): ?WeatherResponse
+    protected function resolvePointMeta(WeatherResponse $wx): void
     {
-        $key = WeatherCacheKey::success($latitude, $longitude, self::CACHE_TYPE_CURRENT);
-        $cached = Cache::get($key);
-        return $cached ? $this->mapCached($cached) : null;
+        $lat = $wx->getLatitude();
+        $lon = $wx->getLongitude();
+
+        if ($lat === null || $lon === null) {
+            throw new WeatherException('Latitude/longitude not set on WeatherResponse.');
+        }
+
+        $url = "{$this->baseUrl}/points/{$lat},{$lon}";
+        $res = $this->get($url);
+
+        $stationsUrl      = $res->json('observationStations');
+        $relativeLocation = $res->json('relativeLocation');
+
+        $wx->setCity(data_get($relativeLocation, 'city'))
+           ->setState(data_get($relativeLocation, 'state'))
+           ->setStationsUrl(is_string($stationsUrl) ? $stationsUrl : null);
+
+        if (!$wx->getStationsUrl()) {
+            throw new WeatherException('NWS point metadata missing observationStations URL.');
+        }
     }
 
     /**
-     * Build the HTTP client with retries, timeouts, and headers.
+     * Get nearest station identifier using $wx->getStationsUrl(); stores stationId on the DTO.
      *
-     * @return \Illuminate\Http\Client\PendingRequest
+     * @throws WeatherException
      */
-    private function http()
+    private function nearestStationId(WeatherResponse $wx): void
+    {
+        $stationsUrl = $wx->getStationsUrl();
+        if (!$stationsUrl) {
+            throw new WeatherException('Stations URL is not set on WeatherResponse.');
+        }
+
+        $res = $this->get($stationsUrl);
+
+        $stations = $res->json('@graph') ?? [];
+        if (!is_array($stations) || !count($stations)) {
+            throw new WeatherException('No stations returned for provided coordinates.');
+        }
+
+        $stationId = $stations[0]['stationIdentifier'] ?? null;
+        if (!is_string($stationId) || $stationId === '') {
+            throw new WeatherException('Nearest station does not include stationIdentifier.');
+        }
+
+        $wx->setStationId($stationId);
+    }
+
+    /**
+     * Fetch latest observation for the station in $wx; pushes normalized fields onto the DTO.
+     *
+     * @throws WeatherException
+     */
+    private function latestObservation(WeatherResponse $wx): void
+    {
+        $stationId = $wx->getStationId();
+        if (!$stationId) {
+            throw new WeatherException('Station ID is not set on WeatherResponse.');
+        }
+
+        $res = $this->get("{$this->baseUrl}/stations/{$stationId}/observations/latest");
+        $observation = $res->json();
+
+        $tempC         = data_get($observation, 'temperature.value');
+        $windVal       = data_get($observation, 'windSpeed.value');
+        $windUnit      = data_get($observation, 'windSpeed.unitCode');
+        $humidity      = data_get($observation, 'relativeHumidity.value');
+        $pressurePa    = data_get($observation, 'barometricPressure.value');
+        $summary       = data_get($observation, 'textDescription');
+        $iconUrl       = data_get($observation, 'icon');
+        $observedAtIso = data_get($observation, 'timestamp');
+
+        $windKph = null;
+        if (is_numeric($windVal)) {
+            $windKph = match ($windUnit) {
+                'wmoUnit:km_h-1' => (float) $windVal,
+                'wmoUnit:m_s-1'  => $this->metersPerSecondToKph((float) $windVal),
+                default          => (float) $windVal,
+            };
+        }
+
+        $wx->setConditionSummary(is_string($summary) ? $summary : null)
+           ->setTemperatureCelsius(is_numeric($tempC) ? round((float) $tempC, 1) : null)
+           ->setTemperatureFahrenheit($this->celsiusToFahrenheit(is_numeric($tempC) ? (float) $tempC : null))
+           ->setWindSpeedKilometersPerHour($windKph)
+           ->setWindSpeedMilesPerHour($this->kphToMph($windKph))
+           ->setRelativeHumidityPercent(is_numeric($humidity) ? (int) round((float) $humidity) : null)
+           ->setPressureMillibars($this->pascalsToMillibars(is_numeric($pressurePa) ? (float) $pressurePa : null))
+           ->setIconUrl(is_string($iconUrl) ? $iconUrl : null)
+           ->setObservedAtIso8601(is_string($observedAtIso) ? $observedAtIso : null);
+    }
+
+    /**
+     * Perform a GET with the configured client; throws WeatherException on any failure.
+     *
+     * @throws WeatherException
+     */
+    private function get(string $url): Response
+    {
+        try {
+            $res = $this->http()->get($url);
+        } catch (\Throwable $e) {
+            throw new WeatherException("HTTP error for {$url}: {$e->getMessage()}", previous: $e);
+        }
+
+        if (!$res->successful()) {
+            throw new WeatherException("HTTP {$res->status()} for {$url}");
+        }
+
+        return $res;
+    }
+
+    /**
+     * Configured HTTP client.
+     */
+    private function http(): \Illuminate\Http\Client\PendingRequest
     {
         return Http::withHeaders([
                 'User-Agent' => $this->userAgent,
                 'Accept'     => 'application/ld+json',
             ])
-            ->connectTimeout($this->connectMilliseconds / 1000)
-            ->timeout($this->timeoutMilliseconds / 1000)
-            ->retry($this->retryAttempts, 200, throw: false);
+            ->connectTimeout($this->connectMs / 1000)
+            ->timeout($this->timeoutMs / 1000)
+            ->retry($this->retries, 200, throw: true);
     }
 
-    /**
-     * Resolve metadata for a point, including observation stations URL.
-     *
-     * @param  float $latitude
-     * @param  float $longitude
-     * @return array{0:string,1:?string,2:?string} [$stationsUrl, $city, $state]
-     *
-     * @throws WeatherException
-     */
-    private function resolvePointMeta(float $latitude, float $longitude): array
-    {
-        // Success + failure keys (failure uses same TTL so we won't recheck until it expires)
-        $cacheKey = WeatherCacheKey::success($latitude, $longitude, self::CACHE_TYPE_META);
-        $failKey  = WeatherCacheKey::fail($latitude, $longitude, self::CACHE_TYPE_META);
+    /** Unit helpers */
 
-        if (Cache::has($failKey)) {
-            throw new WeatherException('Point metadata temporarily unavailable (cached failure).');
-        }
-
-        if ($cached = Cache::get($cacheKey)) {
-            return $cached;
-        }
-
-        $url = "{$this->baseUrl}/points/{$latitude},{$longitude}";
-        $response = $this->http()->get($url);
-
-        if (! $response->successful()) {
-            Cache::put($failKey, ['status' => $response->status(), 'at' => now()->toIso8601String()], $this->metaTtlSeconds);
-            throw new WeatherException("Failed to resolve point metadata: {$response->status()}");
-        }
-
-        $stationsUrl = $response->json('observationStations');
-        $relativeLocation = $response->json('relativeLocation');
-        \Log::debug('relativeLocation', ['data' => $relativeLocation]);
-        $city = data_get($relativeLocation, 'city');
-        $state = data_get($relativeLocation, 'state');
-        \Log::debug('city/state', ['city' => $city, 'state' => $state]);
-        if (! $stationsUrl) {
-            Cache::put($failKey, ['reason' => 'missing_observationStations', 'at' => now()->toIso8601String()], $this->metaTtlSeconds);
-            throw new WeatherException('NWS point metadata missing observationStations URL.');
-        }
-
-        $payload = [$stationsUrl, $city, $state];
-
-        Cache::put($cacheKey, $payload, $this->metaTtlSeconds);
-        Cache::forget($failKey);
-
-        return $payload;
-    }
-
-
-    /**
-     * Get the nearest station identifier from the stations URL.
-     *
-     * @param  string $stationsUrl
-     * @return string|null
-     */
-    private function nearestStationId(string $stationsUrl): ?string
-    {
-        $response = $this->http()->get($stationsUrl);
-
-        if (! $response->successful()) {
-            return null;
-        }
-
-        $stations = $response->json('@graph') ?? [];
-        if (count($stations) === 0) {
-            return null;
-        }
-
-        return $stations[0]['stationIdentifier'] ?? null;
-    }
-
-
-    /**
-     * Fetch the latest observation from a given station.
-     *
-     * @param  string $stationId
-     * @return array
-     *
-     * @throws WeatherException
-     */
-    private function latestObservation(string $stationId): array
-    {
-        $response = $this->http()->get("{$this->baseUrl}/stations/{$stationId}/observations/latest");
-
-        if (!$response->successful()) {
-            throw new WeatherException("Latest observation request failed: {$response->status()}");
-        }
-
-        return $response->json();
-    }
-
-
-    /**
-     * Normalize raw observation into a cacheable array.
-     *
-     * @param  array       $observation  Full latest observation JSON
-     * @param  string|null $city
-     * @param  string|null $state
-     * @return array<string,mixed>
-     */
-    private function normalize(array $observation, ?string $city = null, ?string $state = null): array
-    {
-        $tempC          = data_get($observation, 'temperature.value');
-        $windVal        = data_get($observation, 'windSpeed.value');
-        $windUnit       = data_get($observation, 'windSpeed.unitCode'); // e.g. 'wmoUnit:km_h-1' or 'wmoUnit:m_s-1'
-        $humidity       = data_get($observation, 'relativeHumidity.value');
-        $pressurePa     = data_get($observation, 'barometricPressure.value');
-        $summary        = data_get($observation, 'textDescription');
-        $iconUrl        = data_get($observation, 'icon');
-        $observedAtIso  = data_get($observation, 'timestamp');
-
-        $windKph = null;
-        if (is_numeric($windVal)) {
-            switch ($windUnit) {
-                case 'wmoUnit:km_h-1':
-                    $windKph = (float) $windVal;
-                    break;
-                case 'wmoUnit:m_s-1':
-                    $windKph = $this->metersPerSecondToKph((float) $windVal);
-                    break;
-                default:
-                    $windKph = (float) $windVal;
-                    break;
-            }
-        }
-
-        return [
-            'conditionSummary'           => $summary,
-            'temperatureCelsius'         => is_numeric($tempC) ? round((float) $tempC, 1) : null,
-            'temperatureFahrenheit'      => $this->celsiusToFahrenheit($tempC),
-            'windSpeedKilometersPerHour' => $windKph,
-            'windSpeedMilesPerHour'      => $this->kphToMph($windKph),
-            'relativeHumidityPercent'    => is_numeric($humidity) ? (int) round((float) $humidity) : null,
-            'pressureMillibars'          => $this->pascalsToMillibars($pressurePa), // Pa → hPa(mbar)
-            'iconUrl'                    => $iconUrl,
-            'observedAtIso8601'          => $observedAtIso,
-            'city'                       => $city,
-            'state'                      => $state,
-        ];
-    }
-
-
-    /**
-     * Convert Celsius to Fahrenheit.
-     */
     private function celsiusToFahrenheit(?float $celsius): ?float
     {
         return is_numeric($celsius) ? round(($celsius * 9 / 5) + 32, 1) : null;
     }
 
-    /**
-     * Convert meters per second to kilometers per hour.
-     */
     private function metersPerSecondToKph(?float $mps): ?float
     {
         return is_numeric($mps) ? round($mps * 3.6, 1) : null;
     }
 
-    /**
-     * Convert kilometers per hour to miles per hour.
-     */
     private function kphToMph(?float $kph): ?float
     {
         return is_numeric($kph) ? round($kph * 0.621371, 1) : null;
     }
 
-    /**
-     * Convert Pascals to millibars.
-     */
     private function pascalsToMillibars(?float $pa): ?float
     {
         return is_numeric($pa) ? round($pa / 100.0, 1) : null;
-    }
-
-    /**
-     * Rehydrate cached array into a WeatherResponse DTO.
-     */
-    private function mapCached(array $cached): WeatherResponse
-    {
-        return new WeatherResponse(
-            $cached['conditionSummary']        ?? null,
-            $cached['temperatureCelsius']      ?? null,
-            $cached['temperatureFahrenheit']   ?? null,
-            $cached['windSpeedKilometersPerHour'] ?? null,
-            $cached['windSpeedMilesPerHour']   ?? null,
-            $cached['relativeHumidityPercent'] ?? null,
-            $cached['pressureMillibars']       ?? null,
-            $cached['iconUrl']                 ?? null,
-            $cached['observedAtIso8601']       ?? null,
-            $cached['city']                    ?? null,
-            $cached['state']                   ?? null,
-        );
     }
 }

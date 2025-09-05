@@ -2,7 +2,7 @@
 
 namespace App\Services\Weather;
 
-use App\Services\Weather\WeatherProvider;
+use App\Services\Weather\Contracts\WeatherProvider;
 use App\Services\Weather\WeatherCacheKey;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;

@@ -3,8 +3,8 @@
 namespace App\Providers;
 
 use Illuminate\Support\ServiceProvider;
-use App\Services\Weather\WeatherProvider;
-use App\Services\Weather\NwsWeatherClient;
+use App\Services\Weather\Contracts\WeatherProvider;
+use App\Services\Weather\CachedNwsWeatherClient;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -15,7 +15,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        $this->app->bind(WeatherProvider::class, NwsWeatherClient::class);
+        $this->app->bind(WeatherProvider::class, function ($app) {
+            $ttl = (int) config('weather.cache.current_ttl', 840);
+            return new CachedNwsWeatherClient($ttl);
+        });
     }
 
     /**

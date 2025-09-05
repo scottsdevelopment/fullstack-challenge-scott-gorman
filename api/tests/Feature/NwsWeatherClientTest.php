@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Services\Weather\NwsWeatherClient;
+use App\Services\Weather\CachedNwsWeatherClient;
 use App\Services\Weather\WeatherCacheKey;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -13,8 +14,6 @@ class NwsWeatherClientTest extends TestCase
     /** @test */
     public function it_normalizes_a_latest_observation()
     {
-        Cache::flush();
-
         // Fake NWS responses using real API shapes
         Http::fake([
             // 1) /points -> top-level observationStations (NOT nested in "properties")
@@ -56,15 +55,16 @@ class NwsWeatherClientTest extends TestCase
         $client = new NwsWeatherClient();
         $response = $client->current(42.3314, -83.0458); // Detroit, MI
 
-        $this->assertSame('Clear', $response->conditionSummary);
-        $this->assertSame(23.4, $response->temperatureCelsius);
-        $this->assertSame(74.1, $response->temperatureFahrenheit);
-        $this->assertSame(10.8, $response->windSpeedKilometersPerHour);
-        $this->assertSame(6.7, $response->windSpeedMilesPerHour);
-        $this->assertSame(48, $response->relativeHumidityPercent);
-        $this->assertSame(101.56 * 10, $response->pressureMillibars); // i.e., 1015.6
-        $this->assertSame('https://example.com/icon.png', $response->iconUrl);
-        $this->assertSame('2025-09-03T12:00:00+00:00', $response->observedAtIso8601);
+        $this->assertSame('Clear', $response->getConditionSummary());
+        $this->assertSame(23.4, $response->getTemperatureCelsius());
+        $this->assertSame(74.1, $response->getTemperatureFahrenheit());
+        $this->assertSame(10.8, $response->getWindSpeedKilometersPerHour());
+        $this->assertSame(6.7, $response->getWindSpeedMilesPerHour());
+        $this->assertSame(48, $response->getRelativeHumidityPercent());
+        $this->assertSame(101.56 * 10, $response->getPressureMillibars());
+        $this->assertSame('https://example.com/icon.png', $response->getIconUrl());
+        $this->assertSame('2025-09-03T12:00:00+00:00', $response->getObservedAtIso8601());
+
     }
 
     /** @test */
@@ -90,13 +90,13 @@ class NwsWeatherClientTest extends TestCase
         ];
 
         // Match your client's cache key format (rounded coords)
-        $cacheKey = WeatherCacheKey::success(42.3314, -83.0458);
+        $cacheKey = WeatherCacheKey::current(42.3314, -83.0458);
         Cache::put($cacheKey, $cached, 3300);
 
-        $client = new NwsWeatherClient();
+        $client = new CachedNwsWeatherClient();
         $response = $client->current(42.3314, -83.0458);
 
-        $this->assertSame('Sunny', $response->conditionSummary);
-        $this->assertSame(20.0, $response->temperatureCelsius);
+        $this->assertSame('Sunny', $response->getConditionSummary());
+        $this->assertSame(20.0, $response->getTemperatureCelsius());
     }
 }
